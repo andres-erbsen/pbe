@@ -1,3 +1,3 @@
-`Usage: pbe <file> <protofile> <messagetype>`
+Usage: `pbe <file> <protofile> <messagetype>`
 
-`Example: pbe readings.dat spec.proto ReadingsMessageType`
+Example: `pbe readings.dat spec.proto ReadingsMessageType`
