@@ -1,0 +1,62 @@
+#!/bin/sh
+set -o nounset
+set -o errexit
+set -o pipefail
+
+if [[ "$#" -ne 1 && "$#" -ne 3 ]]; then
+	echo "Usage: $0 <file> <protofile> <messagetype>" >&2
+	exit 1
+fi
+file="$1"
+
+tmp=$(mktemp)
+function cleanup {
+  chmod +w "$tmp"
+  rm "$tmp"
+}
+trap cleanup EXIT
+
+if [ -n "${VISUAL+1}" ]; then
+  editor="$VISUAL"
+else
+	if [ -n "${EDITOR+1}" ]; then
+		editor="$EDITOR"
+	else
+		echo "You can set \$VISUAL or \$EDITOR to use something other than vim."
+		editor=vim
+	fi
+fi
+if [ "$editor" == "gvim" ]; then
+	editor="gvim --nofork"
+fi
+
+if [[ "$#" -eq 1 ]]; then
+	protoc --decode_raw < "$file" > "$tmp"
+	echo "$0 currently needs the .proto structure to edit a file. Sorry."
+	chmod -w "$tmp"
+	$editor "$tmp"
+else
+	proto="$2"
+	messagetype="$3"
+	if [[ ! "$messagetype" == *.* ]]; then
+		packagename=$(grep '^\s*package .*;' "$proto" | cut -d ' ' -f2 | cut -d ';' -f 1)
+		messagetype="$packagename.$messagetype"
+	fi
+	protoc "--decode=$messagetype" "$proto" < "$file" > "$tmp"
+	if grep '^\s*\d+:' "$tmp" > /dev/null; then
+		echo "$0 currently does not support protobuf extensions Sorry."
+		chmod -w "$tmp"
+	else
+		edpid=$$
+		while [ -f "$tmp" ]; do
+			inotifywait -q -e modify -e delete_self "$tmp" > /dev/null
+			if [ -f "$tmp" ]; then
+				protoc "--encode=$messagetype" "$proto" < "$tmp" > "$file" 
+			else
+				exit 0
+			fi
+		done &
+	fi
+	$editor "$tmp"
+fi
+
