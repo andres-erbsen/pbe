@@ -3,8 +3,12 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
-if [[ "$#" -ne 1 && "$#" -ne 3 ]]; then
-	echo "Usage: $0 <file> <protofile> <messagetype>" >&2
+usage() {
+	echo "Usage: $0 <file> [protofile] [messagetype]" >&2
+}
+
+if [[ "$#" -ne 1 && "$#" -ne 2 && "$#" -ne 3 ]]; then
+	usage
 	exit 1
 fi
 file="$1"
@@ -30,19 +34,35 @@ if [ "$editor" == "gvim" ]; then
 	editor="gvim --nofork"
 fi
 
+if [ -n "${PROTO_PATH+1}" ]; then
+	PROTOCFLAGS="--proto_path=${PROTO_PATH}"
+else
+	PROTOCFLAGS=""
+fi
+
 if [[ "$#" -eq 1 ]]; then
-	protoc --decode_raw < "$file" > "$tmp"
+	protoc $PROTOCFLAGS --decode_raw < "$file" > "$tmp"
 	echo "$0 currently needs the .proto structure to edit a file. Sorry."
 	chmod -w "$tmp"
 	$editor "$tmp"
 else
 	proto="$2"
-	messagetype="$3"
+	if [[ "$#" -eq 2 ]]; then
+		c="$(grep -cP '^message\s+\w*\s+{' $proto)"
+		if [[ ! "$c" -eq 1 ]]; then
+			echo "File \"$proto\" declares multible message types, please specify one." >&2
+			usage
+			exit 1
+		fi
+		messagetype="$(grep -oPm1 '^message\s+\w*\s+{' "$proto" | cut -d' ' -f2)"
+	else
+		messagetype="$3"
+	fi
 	if [[ ! "$messagetype" == *.* ]]; then
 		packagename=$(grep '^\s*package .*;' "$proto" | cut -d ' ' -f2 | cut -d ';' -f 1)
 		messagetype="$packagename.$messagetype"
 	fi
-	protoc "--decode=$messagetype" "$proto" < "$file" > "$tmp"
+	protoc $PROTOCFLAGS "--decode=$messagetype" "$proto" < "$file" > "$tmp"
 	if grep '^\s*\d+:' "$tmp" > /dev/null; then
 		echo "$0 currently does not support protobuf extensions Sorry."
 		chmod -w "$tmp"
@@ -51,7 +71,7 @@ else
 		while [ -f "$tmp" ]; do
 			inotifywait -q -e modify -e delete_self "$tmp" > /dev/null
 			if [ -f "$tmp" ]; then
-				protoc "--encode=$messagetype" "$proto" < "$tmp" > "$file" 
+				protoc $PROTOCFLAGS "--encode=$messagetype" "$proto" < "$tmp" > "$file" 
 			else
 				exit 0
 			fi
